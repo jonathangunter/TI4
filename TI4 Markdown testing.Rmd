@@ -1,0 +1,225 @@
+---
+title: "TI4 Statistics"
+author: "Jonathan Gunter"
+date: "9/12/2020"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE, warning=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+# load and transform data
+
+setwd("~/TI4")
+library(tidyverse)
+library(gsheet)
+library(knitr)
+library(ggpmisc)
+
+rawdata <- gsheet2tbl('https://docs.google.com/spreadsheets/d/1c2fGqedk13kS8PR2XF1Olo7kWrjUu5LwZFLSRUKaKdo/edit#gid=1189418583')
+
+df <- data.frame(rawdata)
+
+  # times played
+    # Get list of unique races
+races <-  df %>%  count(Winning.Race, name = "Plays")
+
+    # count if name appears in Winning.Race, X.2nd Race, X.3rd.Race,
+    # X.4th.Race, X.5th.Race, X.6th.Race
+Wins <- df %>%
+  count(Winning.Race) %>%
+  rename(Race = Winning.Race)
+
+
+Second <- df %>%
+  count(X2nd.Race) %>%
+  rename(Race = X2nd.Race)
+
+Third <- df %>%
+  count(X3rd.Race) %>%
+  rename(Race = X3rd.Race)
+
+Fourth <- df %>%
+  count(X4th.Race) %>%
+  rename(Race = X4th.Race)
+
+Fifth <- df %>%
+  count(X5th.Race) %>%
+  rename(Race = X5th.Race)
+
+Sixth <- df %>%
+  count(X6th.Race) %>%
+  rename(Race = X6th.Race)
+
+Plays <- bind_rows(Wins, Second, Third, Fourth, Fifth, Sixth)
+
+RacePlays <- bind_cols(Wins, Second, Third, Fourth, Fifth, Sixth)
+RacePlays <- select(RacePlays,Race...1, n...2,n...4,n...6,n...8,n...10,n...12)
+RacePlays <- RacePlays %>%
+  rename(wins = n...2, second = n...4, third = n...6,
+         fourth = n...8, fifth = n...10, sixth = n...12, Race = Race...1)
+
+Plays <- Plays %>%
+  filter(Race != "NA") %>%
+  group_by(Race) %>%
+  summarise(n = sum(n)) %>%
+  data.frame()
+
+# How many Wins per Play?
+Wins_Per_Play <- left_join(Plays, Wins, by = 'Race') %>%
+  mutate(WinsPerPlay = n.y/n.x) %>%
+  select(Race, WinsPerPlay)
+
+# Aggregate a stats table (race by Stats)
+stats <- left_join(Plays, Wins, by = 'Race') %>%
+  left_join(Wins_Per_Play, by = 'Race') %>%
+  rename(plays = n.x, wins = n.y)
+
+stats <- left_join(stats, RacePlays, by = 'Race')
+stats <- stats %>%
+  select(-wins.y) %>%
+  rename(wins = wins.x)
+
+
+```
+
+## Intro
+
+Jon is learning how to host R analyses on the internet by goofing around with TI4 data (https://docs.google.com/spreadsheets/d/1c2fGqedk13kS8PR2XF1Olo7kWrjUu5LwZFLSRUKaKdo).
+
+   
+
+### Which races are played the most?
+
+Unsurprisingly, 5 of the 6 races recommended in the 'Learn to Play' game are the most played. Sardakk, despite being in the Learn to Play game, is the 3rd least played race.  People play them once and then never again.
+
+
+```{r,echo=FALSE}
+ggplot(stats, aes(x = Race, y = plays, fill = Race)) +
+  geom_col() + 
+  coord_flip() +
+  geom_text(aes(label = plays), hjust = -0.25) +
+  labs(title = "Games Played with each Race",subtitle = "All gametypes and skill levels",
+       caption = "Everybody loves Jol-Nar and Sol") +
+  theme(legend.position = "none")
+  
+
+```
+
+###  Who wins the most?
+
+The Federation of Sol has the most plays along with the most wins.  Would You Like To Know More?
+
+```{r,echo=FALSE}
+ggplot(stats, aes(x = Race, y = wins, fill = Race)) +
+  geom_col() + 
+  coord_flip() +
+  geom_text(aes(label = wins), hjust = -0.25) +
+  labs(title = "Games Won with each Race",subtitle = "All gametypes and skill levels") +
+  theme(legend.position = "none")
+  
+
+```
+
+### Relationship between Plays and Wins
+Logically, the more times a race is played, the more wins it should have.  Fitting it to a linear model, we can see that every time a race is played, we expect it's win total to increase by ~0.27.
+
+```{r, echo = FALSE}
+
+fit_wins_plays <- lm(stats$wins ~ stats$plays)
+
+
+my.formula <- y ~ x
+
+ggplot(stats, aes(plays, wins)) + 
+  geom_point() + 
+  geom_smooth(method = lm, se = FALSE, formula = my.formula) + 
+  geom_text(aes(label = Race)) +
+  stat_poly_eq(formula = my.formula, 
+               aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               parse = TRUE) +
+  labs(title = "Relationship between Wins and Plays", subtitle = "The blue line represents roughly how many wins each race should have given its number of plays")
+
+summary(fit_wins_plays)
+```
+
+
+
+### Outcomes
+There is more to the game than winning.  Let's take a look at the final outcome of all 10 point games played by the Federation of Sol:
+```{r, echo=FALSE}
+all_races <- rawdata %>%
+  select(Arborec, Saar, Embers, Creuss, L1Z1X, Mentak, Naalu, Nekro, Winnu, Yin, Yssaril,
+         `Jol-Nar`,Hacan, Barony, Sardakk, Xxcha, Sol, `Winner VP`) %>%
+  filter(`Winner VP` == 10) %>%
+  select(-`Winner VP`) %>%
+  gather() %>%
+  filter(!is.na(value)) %>%
+  filter(value <11)
+
+sol <- rawdata %>%
+  select(Sol, `Winner VP`) %>%
+  filter(`Winner VP` == 10) %>%
+  select(-`Winner VP`) %>%
+  gather() %>%
+  filter(!is.na(value)) %>%
+  filter(value <11)
+
+ggplot(sol, aes(value)) +
+  geom_histogram(binwidth = 1) +
+  labs() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of Final Score in 10 point games with Sol", subtitle = "Bar size = # of games where Sol finished with that score", x = "Points at end of game", y = "Games played")
+
+summary(sol$value)
+
+```
+
+Even when they don't win, Sol get a lot of points.
+
+
+Let's see the distribution of end game scoring outcomes in 10 point games for all races:
+
+```{r, echo=FALSE}
+
+ggplot(all_races, aes(value, fill = key)) +
+  geom_histogram(binwidth = 1) +
+  labs() +
+  facet_wrap(~key) +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of Final Score by Race", subtitle = "Bar size = # of games where that Race finished with that score", x = "", y = "")
+```
+
+Let's see the distribution of outcomes for all races in 14 point games:
+ 
+ 
+
+### Neat.  How about 14 point games?
+
+```{r, echo = FALSE}
+all_races14 <- rawdata %>%
+  select(Arborec, Saar, Embers, Creuss, L1Z1X, Mentak, Naalu, Nekro, Winnu, Yin, Yssaril,
+         `Jol-Nar`,Hacan, Barony, Sardakk, Xxcha, Sol, `Winner VP`) %>%
+  filter(`Winner VP` == 14) %>%
+  select(-`Winner VP`) %>%
+  gather() %>%
+  filter(!is.na(value))
+
+ggplot(all_races14, aes(value, fill = key)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~key)
+
+```
+
+### Stats table
+
+
+```{r, echo=FALSE,warning=FALSE}
+kable(stats)
+
+```
